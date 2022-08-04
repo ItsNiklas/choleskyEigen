@@ -1,20 +1,19 @@
 from choleskyEigen import solverDense
 from choleskyEigen import choleskyDense
+from choleskyEigen import solverSparse
 import numpy as np
 
 import jax.numpy as jnp
-from jaxlib import xla_client
-from jax import abstract_arrays, core, xla
 from jax import jit
+
+from jax.experimental import sparse
 
 from jax.config import config
 config.update("jax_enable_x64", True) #Enable double-precision
 
 def main():
-    #print(dir(choleskyEigen))
-    solverDense.register()
-
     # Testing
+    solverDense.register()
     f = jit(solverDense.solverDense_prim)
 
     A = jnp.array([[1,3,-2],[3,5,6],[2,4,3]], dtype=jnp.double)
@@ -25,6 +24,11 @@ def main():
     choleskyDense.register()
     f = jit(choleskyDense.choleskyDense_prim)
     assert np.allclose(np.linalg.cholesky(A), f(A))
+
+    solverSparse.register()
+    A_sp = sparse.BCOO.fromdense(A)
+    f = jit(solverSparse.solverSparse_prim)
+    assert np.allclose(np.linalg.solve(A,b), f(A_sp.data, A_sp.indices, b))
 
 if __name__ == "__main__":
     main()
