@@ -9,5 +9,3 @@ set(CMAKE_CXX_STANDARD 14)
 
 add_library(choleskyEigen cholesky.cpp)
 target_link_libraries(choleskyEigen PRIVATE pybind11::embed)
-
-set(EXECUTABLE_OUTPUT_PATH "/home/bauer/choleskyEigen/out")
