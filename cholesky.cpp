@@ -78,12 +78,12 @@ void choleskySparse(void *out, void **in){
     //A_sp_data, A_sp_idx, nnz, n
     //Parse Inputs
     auto* A_sp_data_ptr = reinterpret_cast<double *>(in[0]);
-    auto* A_sp_idx_ptr = reinterpret_cast<double *>(in[1]);
+    auto* A_sp_idx_ptr = reinterpret_cast<int *>(in[1]);
     auto nnz = *reinterpret_cast<const std::int64_t*>(in[2]); //number of non-zeros
     auto n = *reinterpret_cast<const std::int64_t*>(in[3]);
 
     VectorXd A_sp_data = Map<const VectorXd>(A_sp_data_ptr, nnz);
-    MatrixXd A_sp_idx = Map<const MatrixXd>(A_sp_idx_ptr, 2, nnz);
+    MatrixXi A_sp_idx = Map<const MatrixXi>(A_sp_idx_ptr, nnz, 2);
 
     auto* out_ptr = reinterpret_cast<double *>(out);
 
@@ -91,17 +91,23 @@ void choleskySparse(void *out, void **in){
     std::vector<Eigen::Triplet<double>> tripletList;
     tripletList.reserve(nnz);
     for (int i = 0; i < nnz; i++) {
-        tripletList.emplace_back(A_sp_idx(0,i), A_sp_idx(1,i), A_sp_data(i));
+        tripletList.emplace_back(A_sp_idx(i,0), A_sp_idx(i,1), A_sp_data(i));
     }
     Eigen::SparseMatrix<double> A_sp(n,n);
     A_sp.setFromTriplets(tripletList.begin(), tripletList.end());
     //
 
     //Solve
-    static Eigen::SimplicialLLT<Eigen::SparseMatrix<double>> solver;
+    static Eigen::SimplicialLLT<Eigen::SparseMatrix<double>, Eigen::Lower, Eigen::NaturalOrdering<int>> solver;
 
     solver.analyzePattern(A_sp);
     solver.factorize(A_sp);
+    Eigen::SparseMatrix<double> L_sp = solver.matrixL();
+
+    Map<Eigen::VectorXi>(L_sp.outerIndexPtr(), L_sp.outerSize()+1);
+    Map<Eigen::VectorXi>(L_sp.innerIndexPtr(), L_sp.nonZeros());
+    Map<Eigen::VectorXd>(L_sp.valuePtr(), L_sp.nonZeros());
+
     Map<MatrixXd>(out_ptr, n,n) = solver.matrixL();
 }
 

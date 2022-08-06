@@ -19,12 +19,12 @@ for _name, _val in choleskyEigenLib.registrations().items():
         xla_client.register_cpu_custom_call_target(_name, _val)
 
 # impl
-def solverSparse_impl(A_sp_data, A_sp_idx, rhs):
+def solverSparse_impl(A_sp, rhs):
     raise NotImplementedError("Please JIT this function.")
 
 # prim
-def solverSparse_prim(A_sp_data, A_sp_idx, rhs):
-    return solverSparse_p.bind(A_sp_data, A_sp_idx, rhs)
+def solverSparse_prim(A_sp, rhs):
+    return solverSparse_p.bind(A_sp.data, A_sp.indices, rhs)
 
 # abstract
 def solverSparse_abstract_eval(A_sp_datas, A_sp_idxs, rhss):
