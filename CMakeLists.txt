@@ -3,6 +3,7 @@ project(choleskyEigen)
 
 find_package(Python 3.10 REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
+find_package(Eigen3 3.3 REQUIRED)
 pybind11_add_module(choleskyEigenLib cholesky.cpp)
 
 set(CMAKE_CXX_STANDARD 14)
