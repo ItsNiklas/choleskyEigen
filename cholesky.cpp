@@ -163,6 +163,66 @@ void choleskySparse(void *out, void **in) {
 }
 
 
+void sps_mvn_sample_and_log_prob(void *out_tuple, void **in) {
+    /* Return sample and log probabilty of a multivariate normal distribution
+    * Arguments:
+    * mean, The mean vector of the MVN.
+    * inv_cov_data, The sparse precision matrix: Vector of length nnz that contains the non-zero values of A.
+    * inv_cov_idx, The sparse precision matrix: nnz x 2 matrix that contains the indicies of the respective data.
+    * sample, JAX-generated sample of a normal distribution.
+    * log_prob, JAX-generated log probability.
+    * n, dimension.
+    * nnz, number of non-zeroes of inv_cov.
+    * Returns:
+    * sample, updated sample.
+    * log_prob, adjusted log probability.
+    */
+
+    //Parse and cast pointers
+    auto *mean_ptr = reinterpret_cast<double *>(in[0]);
+    auto *inv_cov_data_ptr = reinterpret_cast<double *>(in[1]);
+    auto *inv_cov_idx_ptr = reinterpret_cast<int *>(in[2]);
+    auto *sample_ptr = reinterpret_cast<double *>(in[3]);
+    auto log_prob = *reinterpret_cast<const std::int64_t *>(in[4]);
+    auto n = *reinterpret_cast<const std::int64_t *>(in[5]);
+    auto nnz = *reinterpret_cast<const std::int64_t *>(in[6]);
+
+    //Prepare for multiple outputs
+    void **out = reinterpret_cast<void **>(out_tuple);
+    auto *sample_out = reinterpret_cast<double *>(out[0]);
+    auto *log_prob_out = reinterpret_cast<std::int64_t *>(out[1]);
+
+    //Map pointers to Eigen data-structures
+    VectorXd mean = Map<const VectorXd>(mean_ptr, n);
+    VectorXd inv_cov_data = Map<const VectorXd>(inv_cov_data_ptr, nnz);
+    MatrixXi inv_cov_idx = Map<const MatrixXi>(inv_cov_idx_ptr, nnz, 2);
+    VectorXd sample = Map<const VectorXd>(sample_ptr, n);
+
+    //Create our SparseMatrix object
+    std::vector<Eigen::Triplet<double>> tripletList(nnz);
+    for (int i = 0; i < nnz; i++) {
+        //Create tuples with values (index0, index1, data)
+        tripletList.emplace_back(
+                inv_cov_idx(i, 0), inv_cov_idx(i, 1), inv_cov_data(i));
+    }
+    Eigen::SparseMatrix<double> inv_cov(n, n);
+    //Set matrix with created tuples
+    inv_cov.setFromTriplets(tripletList.begin(), tripletList.end());
+
+    //Create sparse Cholesky solver
+    static Eigen::SimplicialLLT <Eigen::SparseMatrix<double>> solver;
+    solver.compute(inv_cov);
+
+    //Calculate outputs
+    sample = mean + solver.solve(sample);
+    log_prob += 2 * solver.matrixL().toDense().diagonal().array().log().sum();
+
+    //Map data into out pointers
+    Map<VectorXd>(sample_out, n) = sample;
+    *log_prob_out = log_prob;
+}
+
+
 //Fill a pybind dictionary with function pointers that should be exposed.
 //Functions are capsuled with a XLA_CUSTOM_CALL_TARGET tag.
 pybind11::dict Registrations() {
@@ -174,6 +234,8 @@ pybind11::dict Registrations() {
     dict["solverSparse"] = pybind11::capsule((void *) solverSparse,
                                              "xla._CUSTOM_CALL_TARGET");
     dict["choleskySparse"] = pybind11::capsule((void *) choleskySparse,
+                                               "xla._CUSTOM_CALL_TARGET");
+    dict["sps_mvn_sample_and_log_prob"] = pybind11::capsule((void *) sps_mvn_sample_and_log_prob,
                                                "xla._CUSTOM_CALL_TARGET");
     return dict;
 }
