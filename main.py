@@ -25,10 +25,10 @@ def main():
     A = A @ A.T  # make sym, pos.-semidef.
     b = jnp.array([5, 7, 8], dtype=jnp.double)
 
-    # A = sps.rand(100, 100, density=0.5, dtype=jnp.double)
-    # A = A @ A.T
-    # A = A.todense()
-    # b = np.random.rand(100) * 10
+    A = sps.rand(100, 100, density=0.5, dtype=jnp.double)
+    A = A @ A.T
+    A = A.todense()
+    b = np.random.rand(100) * 10
 
     assert np.allclose(np.linalg.solve(A, b), f(A, b))
 
@@ -43,7 +43,8 @@ def main():
 
     choleskySparse.register()
     f = jit(choleskySparse.choleskySparse)
-    L = f(A_sp)
+    # Creating an n x 1 array containing n works.
+    L = f(A_sp, jnp.repeat(A.shape[0], A.shape[0]))
     assert np.allclose(L @ L.T, A)
 
 

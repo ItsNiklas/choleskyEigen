@@ -1,8 +1,9 @@
-import choleskyEigenLib
 import jax.numpy as jnp
 import numpy as np
 from jax import abstract_arrays, core, xla
 from jaxlib import xla_client
+
+import choleskyEigenLib
 
 choleskyDense_p = core.Primitive("choleskyDense")
 # See solverDense.py for extensive comments.

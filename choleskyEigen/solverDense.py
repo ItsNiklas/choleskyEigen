@@ -1,10 +1,11 @@
-import choleskyEigenLib
 import jax.numpy as jnp
 import numpy as np
 from jax import abstract_arrays, core, xla
 from jax.core import ShapedArray
 from jaxlib import xla_client, xla_extension
 from numpy.typing import ArrayLike
+
+import choleskyEigenLib
 
 # Creating our new JAX Primitive
 solverDense_p = core.Primitive("solverDense")

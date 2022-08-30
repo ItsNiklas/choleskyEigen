@@ -1,7 +1,8 @@
-import choleskyEigenLib
 import jax.numpy as jnp
 from jax import abstract_arrays, core, xla
 from jaxlib import xla_client
+
+import choleskyEigenLib
 
 solverSparse_p = core.Primitive("solverSparse")
 # See solverDense.py for extensive comments.
