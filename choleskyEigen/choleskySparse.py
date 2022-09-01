@@ -33,7 +33,7 @@ for _name, _val in choleskyEigenLib.registrations().items():
 
 
 # impl
-def choleskySparse_impl(A_sp_data, A_sp_idx, n):
+def choleskySparse_impl(*args):
     raise NotImplementedError("Please JIT this function.")
 
 
@@ -88,7 +88,6 @@ def choleskySparse_xla_translation(c, A_sp_data, A_sp_idx, n):
             n,
         ),
         shape_with_layout=out_shape,
-        # shape=sh,
         operand_shapes_with_layout=(
             A_sp_data_shape,
             A_sp_idx_shape,
@@ -96,5 +95,4 @@ def choleskySparse_xla_translation(c, A_sp_data, A_sp_idx, n):
             c.get_shape(n),
         ),
     )
-    # return xla_client.ops.GetTupleElement(r, 0)
     return r

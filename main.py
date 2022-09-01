@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 import numpy as np
 import scipy.sparse as sps
+import scipy.stats as spt
 from jax import jit
 
 # Enable JAX double-precision at startup.
@@ -8,7 +9,13 @@ from jax import jit
 from jax.config import config
 from jax.experimental import sparse
 
-from choleskyEigen import choleskyDense, choleskySparse, solverDense, solverSparse
+from choleskyEigen import (
+    choleskyDense,
+    choleskySparse,
+    solverDense,
+    solverSparse,
+    sps_mvn_sample_and_log_prob,
+)
 
 config.update("jax_enable_x64", True)
 
@@ -46,6 +53,24 @@ def main():
     # Creating an n x 1 array containing n works.
     L = f(A_sp, jnp.repeat(A.shape[0], A.shape[0]))
     assert np.allclose(L @ L.T, A)
+
+    # MVN
+    rng = np.random.default_rng(seed=2)
+
+    sps_mvn_sample_and_log_prob.register()
+    f = jit(sps_mvn_sample_and_log_prob.sps_mvn_sample_and_log_prob)
+
+    n = 5
+    cov = rng.normal(size=(n, n))
+    cov = cov @ cov.T * np.eye(n)
+    inv_cov = sparse.BCOO.fromdense(np.linalg.inv(cov))
+    mean = rng.uniform(size=n)
+    sample = rng.uniform(size=n)
+    log_prob = np.sum(spt.norm.logpdf(sample))
+
+    sample, log_prob = f(mean, inv_cov, sample, log_prob)
+
+    print(sample, log_prob)
 
 
 if __name__ == "__main__":
