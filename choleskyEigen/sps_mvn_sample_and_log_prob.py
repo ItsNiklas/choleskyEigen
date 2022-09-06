@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from jax import abstract_arrays, core, dtypes, experimental, xla
+from jax import abstract_arrays, core, xla
 from jaxlib import xla_client
 
 import choleskyEigenLib
@@ -13,7 +13,11 @@ sps_mvn_sample_and_log_prob_p = core.Primitive("sps_mvn_sample_and_log_prob")
 
 def sps_mvn_sample_and_log_prob(mean, inv_cov, sample, log_prob):
     r = sps_mvn_sample_and_log_prob_prim(
-        mean, inv_cov.data, inv_cov.indices, sample, log_prob
+        mean,
+        inv_cov.data,
+        inv_cov.indices.T,
+        sample,
+        log_prob,  # Transpose fixes some other bug (?)
     )
     # Possibly turn into BCOO
     return r
@@ -21,13 +25,16 @@ def sps_mvn_sample_and_log_prob(mean, inv_cov, sample, log_prob):
 
 def register():
     # Register module
-    xla.backend_specific_translations["cpu"][
-        sps_mvn_sample_and_log_prob_p
-    ] = sps_mvn_sample_and_log_prob_xla_translation
     sps_mvn_sample_and_log_prob_p.def_impl(sps_mvn_sample_and_log_prob_impl)
+    # Undocumented support for tuple return!
+    # TypeError: <class 'tuple'> otherwise.
+    sps_mvn_sample_and_log_prob_p.multiple_results = True
     sps_mvn_sample_and_log_prob_p.def_abstract_eval(
         sps_mvn_sample_and_log_prob_abstract_eval
     )
+    xla.backend_specific_translations["cpu"][
+        sps_mvn_sample_and_log_prob_p
+    ] = sps_mvn_sample_and_log_prob_xla_translation
 
 
 # Register the XLA custom calls
@@ -42,10 +49,8 @@ def sps_mvn_sample_and_log_prob_impl(*args):
 
 
 # prim
-def sps_mvn_sample_and_log_prob_prim(mean, inv_cov_data, inv_cov_idx, sample, log_prob):
-    return sps_mvn_sample_and_log_prob_p.bind(
-        mean, inv_cov_data, inv_cov_idx, sample, log_prob
-    )
+def sps_mvn_sample_and_log_prob_prim(*args):
+    return sps_mvn_sample_and_log_prob_p.bind(*args)
 
 
 # abstract
@@ -55,11 +60,10 @@ def sps_mvn_sample_and_log_prob_abstract_eval(
     # Missing asserts
 
     # Returning tuple of outputs
-    dt = dtypes.canonicalize_dtype(sample.dtype)
-    dtlog = dtypes.canonicalize_dtype(log_prob.dtype)
-    a = abstract_arrays.ShapedArray(sample.shape, dt)
-    b = abstract_arrays.ShapedArray(log_prob.shape, dtlog)
-    return a, b
+    return (
+        abstract_arrays.ShapedArray(sample.shape, sample.dtype),
+        abstract_arrays.ShapedArray(log_prob.shape, log_prob.dtype),
+    )
 
 
 def sps_mvn_sample_and_log_prob_xla_translation(

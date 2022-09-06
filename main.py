@@ -24,6 +24,7 @@ config.update("jax_enable_x64", True)
 def main():
     # Testing
     # register() is used to actually activate the JAX Primitive.
+
     solverDense.register()
     f = jit(solverDense.solverDense_prim)
 
@@ -60,7 +61,7 @@ def main():
     sps_mvn_sample_and_log_prob.register()
     f = jit(sps_mvn_sample_and_log_prob.sps_mvn_sample_and_log_prob)
 
-    n = 5
+    n = 30
     cov = rng.normal(size=(n, n))
     cov = cov @ cov.T * np.eye(n)
     inv_cov = sparse.BCOO.fromdense(np.linalg.inv(cov))
@@ -68,9 +69,14 @@ def main():
     sample = rng.uniform(size=n)
     log_prob = np.sum(spt.norm.logpdf(sample))
 
-    sample, log_prob = f(mean, inv_cov, sample, log_prob)
-
-    print(sample, log_prob)
+    sample_updated, log_prob_updated = f(mean, inv_cov, sample, log_prob)
+    assert np.allclose(
+        sample_updated, mean + np.linalg.solve(inv_cov.todense(), sample)
+    )
+    assert np.allclose(
+        log_prob_updated,
+        log_prob + np.sum(np.log(np.diag(np.linalg.cholesky(inv_cov.todense())))),
+    )
 
 
 if __name__ == "__main__":

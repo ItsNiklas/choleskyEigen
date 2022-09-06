@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from jax import abstract_arrays, core, experimental, xla
+from jax import abstract_arrays, core, xla
 from jaxlib import xla_client
 
 import choleskyEigenLib

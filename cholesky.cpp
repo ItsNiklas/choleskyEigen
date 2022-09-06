@@ -183,14 +183,14 @@ void sps_mvn_sample_and_log_prob(void *out_tuple, void **in) {
     auto *inv_cov_data_ptr = reinterpret_cast<double *>(in[1]);
     auto *inv_cov_idx_ptr = reinterpret_cast<int *>(in[2]);
     auto *sample_ptr = reinterpret_cast<double *>(in[3]);
-    auto log_prob = *reinterpret_cast<const std::int64_t *>(in[4]);
+    auto log_prob = *reinterpret_cast<const std::double_t *>(in[4]);
     auto n = *reinterpret_cast<const std::int64_t *>(in[5]);
     auto nnz = *reinterpret_cast<const std::int64_t *>(in[6]);
 
     //Prepare for multiple outputs
     void **out = reinterpret_cast<void **>(out_tuple);
     auto *sample_out = reinterpret_cast<double *>(out[0]);
-    auto *log_prob_out = reinterpret_cast<std::int64_t *>(out[1]);
+    auto *log_prob_out = reinterpret_cast<std::double_t *>(out[1]);
 
     //Map pointers to Eigen data-structures
     VectorXd mean = Map<const VectorXd>(mean_ptr, n);
@@ -210,12 +210,11 @@ void sps_mvn_sample_and_log_prob(void *out_tuple, void **in) {
     inv_cov.setFromTriplets(tripletList.begin(), tripletList.end());
 
     //Create sparse Cholesky solver
-    static Eigen::SimplicialLLT <Eigen::SparseMatrix<double>> solver;
-    solver.compute(inv_cov);
+    static Eigen::SimplicialLLT<Eigen::SparseMatrix<double>> solver(inv_cov);
 
     //Calculate outputs
     sample = mean + solver.solve(sample);
-    log_prob += 2 * solver.matrixL().toDense().diagonal().array().log().sum();
+    log_prob += solver.matrixL().toDense().diagonal().array().log().sum();
 
     //Map data into out pointers
     Map<VectorXd>(sample_out, n) = sample;
@@ -241,7 +240,6 @@ pybind11::dict Registrations() {
 }
 
 // Expose function dictionary as the Python module 'choleskyEigenLib'
-PYBIND11_MODULE(choleskyEigenLib, m
-){
-m.def("registrations", &Registrations);
+PYBIND11_MODULE(choleskyEigenLib, m){
+    m.def("registrations", &Registrations);
 }
