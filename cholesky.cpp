@@ -106,15 +106,16 @@ void solverSparse(void *out, void **in) {
 }
 
 //Exposable function wrapper for sparse cholesky-matrix L
-void choleskySparse(void *out, void **in) {
+void choleskySparse(void *out_tuple, void **in) {
     /* Solve Ax=b, when the symmetrical positive definite Matrix A is stored sprse.
     * Arguments:
     * A_sp_data, Vector of length nnz that contains the non-zero values of A.
     * A_sp_idx, nnz x 2 matrix that contains the indicies of the respective data.
-    * nnz, Number of non-zeroes.
+    * nnz, Number of non-zeroes of A.
     * n, dimension of the dense representation of A.
+    * nnz_L, Number of non-zeroes of L.
     * Returns:
-    * The Cholesky decomposition of A, as a lower triangular matrix.
+    * The Cholesky decomposition of A, as a sparse lower triangular matrix.
     */
 
     //Parse and cast pointers
@@ -122,7 +123,12 @@ void choleskySparse(void *out, void **in) {
     auto *A_sp_idx_ptr = reinterpret_cast<int *>(in[1]);
     auto nnz = *reinterpret_cast<const std::int64_t *>(in[2]);
     auto n = *reinterpret_cast<const std::int64_t *>(in[3]);
-    auto *out_ptr = reinterpret_cast<double *>(out);
+
+    //Prepare for multiple outputs
+    auto **out = reinterpret_cast<double **>(out_tuple);
+    auto *L_sp_idx_outer_ptr = reinterpret_cast<int *>(out[0]);
+    auto *L_sp_idx_inner_ptr = reinterpret_cast<int *>(out[1]);
+    auto *L_sp_data_ptr = reinterpret_cast<double *>(out[2]);
 
     //Map pointers to Eigen data-structures
     VectorXd A_sp_data = Map<const VectorXd>(A_sp_data_ptr, nnz);
@@ -147,19 +153,29 @@ void choleskySparse(void *out, void **in) {
                                 Eigen::NaturalOrdering<int>> solver;
 
     //Calculate decomposition
-    solver.analyzePattern(A_sp);
-    solver.factorize(A_sp);
+    solver.compute(A_sp);
 
     //Request the lower triangular decomposition.
     Eigen::SparseMatrix<double> L_sp = solver.matrixL();
 
-    //Possible Vectors to reconstruct a BCOO matrix in Python
-    //Map<Eigen::VectorXi>(L_sp.outerIndexPtr(), L_sp.outerSize()+1);
-    //Map<Eigen::VectorXi>(L_sp.innerIndexPtr(), L_sp.nonZeros());
-    //Map<Eigen::VectorXd>(L_sp.valuePtr(), L_sp.nonZeros());
+    //Short, unoptimized algorithm to compute the column-indicies from the
+    //Outer-Index values.
+    std::vector<int> L_sp_idx_outer;
+    int k = 0;
+    for(int i = 0; i < L_sp.nonZeros(); i++){
+        if(L_sp.outerIndexPtr()[k+1] == i) k++;
+        L_sp_idx_outer.push_back(k);
+    }
 
-    //Map data into out pointer (dense!)
-    Map<MatrixXd>(out_ptr, n, n) = L_sp;
+    //Map data into out pointers
+    //Less than optimal mapping to be fair. Pointers should be able to
+    //get redirected, but I couldn't get it to work.
+    Map<Eigen::VectorXi>(L_sp_idx_outer_ptr, L_sp.nonZeros()) =
+            Map<Eigen::VectorXi>(L_sp_idx_outer.data(), L_sp.nonZeros());
+    Map<Eigen::VectorXi>(L_sp_idx_inner_ptr, L_sp.nonZeros()) =
+            Map<Eigen::VectorXi>(L_sp.innerIndexPtr(), L_sp.nonZeros());
+    Map<Eigen::VectorXd>(L_sp_data_ptr, L_sp.nonZeros()) =
+            Map<Eigen::VectorXd>(L_sp.valuePtr(), L_sp.nonZeros());
 }
 
 

@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from jax import abstract_arrays, core, xla
+from jax import abstract_arrays, core, experimental, jit, lax, xla
 from jaxlib import xla_client
 
 import choleskyEigenLib
@@ -10,11 +10,56 @@ choleskySparse_p = core.Primitive("choleskySparse")
 # See solverDense.py for extensive comments.
 # New bindings are just copied and adjusted.
 
+### Symbolic Factorization of the Sparse Cholesky Decomposition ###
+### by @GianmarcoCallegher                                      ###
 
-def choleskySparse(A_sp, n):
-    r = choleskySparse_prim(A_sp.data, A_sp.indices, n)
-    # Possibly turn into BCOO
-    return r
+@jit
+def symbolic_factorization(nnz_m):
+    def parent(k, nnz_m):
+        p = -1
+        i = k + 1
+
+        def cond_fun(carry):
+            i, p = carry
+            return (p == -1) & (i < nnz_m.shape[0])
+
+        def body_fun(carry):
+            i, p = carry
+            p = jnp.where(nnz_m[(i, k)] == 1.0, i, p)
+            return i + 1, p
+
+        return lax.while_loop(cond_fun, body_fun, (i, p))[1]
+
+    n = nnz_m.shape[0]
+
+    def outer_body(k, nnz_m):
+        nnz_m = nnz_m.at[(k, k)].set(1.0)
+        parent_k = parent(k, nnz_m)
+
+        def inner_body(i, nnz_m):
+            return jnp.where(
+                nnz_m[(i, k)] == 1.0, nnz_m.at[(i, parent_k)].set(1.0), nnz_m
+            )
+
+        return lax.fori_loop(k + 1, n, inner_body, nnz_m)
+
+    return jnp.sum(lax.fori_loop(0, n, outer_body, nnz_m), dtype=jnp.int32)
+
+###
+
+# Not jit-able!
+def choleskySparse(A_sp):
+    nnz_m = jnp.array(A_sp.todense() != 0, dtype=jnp.float32)
+    nnz_m = nnz_m - jnp.triu(nnz_m)
+    nnz = symbolic_factorization(nnz_m)
+    n = A_sp.shape[0]
+
+    outer_idx, inner_idx, data = choleskySparse_prim(
+        A_sp.data, A_sp.indices, jnp.repeat(n, n), jnp.repeat(nnz, nnz)
+    )
+    idx = jnp.hstack((inner_idx, outer_idx))
+
+    return experimental.sparse.BCOO((data.flatten(), idx), shape=(n, n))
 
 
 def register():
@@ -22,6 +67,7 @@ def register():
     xla.backend_specific_translations["cpu"][
         choleskySparse_p
     ] = choleskySparse_xla_translation
+    choleskySparse_p.multiple_results = True
     choleskySparse_p.def_impl(choleskySparse_impl)
     choleskySparse_p.def_abstract_eval(choleskySparse_abstract_eval)
 
@@ -38,19 +84,25 @@ def choleskySparse_impl(*args):
 
 
 # prim
-def choleskySparse_prim(A_sp_data, A_sp_idx, n):
-    return choleskySparse_p.bind(A_sp_data, A_sp_idx, n)
+@jit
+def choleskySparse_prim(*args):
+    return choleskySparse_p.bind(*args)
 
 
 # abstract
-def choleskySparse_abstract_eval(A_sp_data, A_sp_idx, n):
+def choleskySparse_abstract_eval(A_sp_data, A_sp_idx, n, nnz_L):
     assert len(A_sp_data.shape) == 1
     assert len(A_sp_idx.shape) == 2
     assert A_sp_data.shape[0] == A_sp_idx.shape[0]
-    return abstract_arrays.ShapedArray((n.shape[0], n.shape[0]), A_sp_data.dtype)
+    # Returning tuple of outputs
+    return (
+        abstract_arrays.ShapedArray((nnz_L.shape[0], 1), A_sp_idx.dtype),
+        abstract_arrays.ShapedArray((nnz_L.shape[0], 1), A_sp_idx.dtype),
+        abstract_arrays.ShapedArray((nnz_L.shape[0], 1), A_sp_data.dtype),
+    )
 
 
-def choleskySparse_xla_translation(c, A_sp_data, A_sp_idx, n):
+def choleskySparse_xla_translation(c, A_sp_data, A_sp_idx, n, nnz_L):
     A_sp_data_shape = c.get_shape(A_sp_data)
     A_sp_idx_shape = c.get_shape(A_sp_idx)
 
@@ -72,7 +124,20 @@ def choleskySparse_xla_translation(c, A_sp_data, A_sp_idx, n):
     out_shape = xla_client.Shape.array_shape(
         jnp.dtype(dtype), (n_dims[0], n_dims[0]), (0, 1)
     )
-    # sh = xla_client.Shape.tuple_shape([xla_client.Shape.token_shape()])
+
+    out_shape = xla_client.Shape.tuple_shape(
+        (
+            xla_client.Shape.array_shape(
+                jnp.dtype(dtype_idx), (c.get_shape(nnz_L).dimensions()[0], 1), (0, 1)
+            ),
+            xla_client.Shape.array_shape(
+                jnp.dtype(dtype_idx), (c.get_shape(nnz_L).dimensions()[0], 1), (0, 1)
+            ),
+            xla_client.Shape.array_shape(
+                jnp.dtype(dtype), (c.get_shape(nnz_L).dimensions()[0], 1), (0, 1)
+            ),
+        )
+    )
 
     op_name = b"choleskySparse"
 
