@@ -1,5 +1,9 @@
+from functools import partial
+
+import jax
 import jax.numpy as jnp
 from jax import abstract_arrays, core, xla
+from jax.experimental.sparse import BCOO
 from jaxlib import xla_client
 
 import choleskyEigenLib
@@ -7,20 +11,53 @@ import choleskyEigenLib
 sps_mvn_sample_and_log_prob_p = core.Primitive("sps_mvn_sample_and_log_prob")
 
 
-# See solverDense.py for extensive comments.
-# New bindings are just copied and adjusted.
-
-
-def sps_mvn_sample_and_log_prob(mean, inv_cov, sample, log_prob):
-    r = sps_mvn_sample_and_log_prob_prim(
+@partial(jax.custom_jvp, nondiff_argnums=(0,))
+def sps_mvn(seed, mean, inv_cov):
+    # This is akward, but the gradient does not like the BCOO matrix.
+    # It can be sparsified, but then the attributes .data and .indices below
+    # become unavailable. This is the simplest solution I've come up with,
+    # which stores the whole memory, and the method below cannot be included
+    # in JIT-compilation.
+    inv_cov = BCOO.fromdense(inv_cov)  # dense to sparse
+    # do the following steps in c++
+    return jax.jit(sps_mvn_sample_and_log_prob_prim)(
         mean,
         inv_cov.data,
         inv_cov.indices.T,
-        sample,
-        log_prob,  # Transpose fixes some other bug (?)
+        jax.random.normal(seed, mean.shape),  # sample
+        jnp.sum(
+            jax.scipy.stats.norm.logpdf(jax.random.normal(seed, mean.shape))
+        ),  # log-prob
+        # Transpose fixes some other bug (?)
     )
-    # Possibly turn into BCOO
-    return r
+
+
+@sps_mvn.defjvp
+def sps_mvn_jvp(seed, primals, tangents):
+    mean, inv_cov = primals
+    mean_dot, inv_cov_dot = tangents
+
+    sample, log_prob = sps_mvn(seed, mean, inv_cov)
+    primals_out = (sample, log_prob)
+
+    # do the following steps in c++... or not
+    # Maybe XLA is enough?
+    # Not sparse tough...
+    @jax.jit
+    def __f():
+        tmp1 = sample - mean
+        tmp2 = inv_cov @ tmp1
+        dot1 = mean_dot @ tmp2
+        dot2 = jnp.trace(jnp.linalg.solve(inv_cov, inv_cov_dot))
+        dot3 = tmp1 @ inv_cov_dot @ tmp1
+        return jnp.zeros_like(sample), dot1 + (dot2 - dot3) / 2
+
+    tangents_out = __f()
+    return primals_out, tangents_out
+
+
+# See solverDense.py for extensive comments.
+# New bindings are just copied and adjusted.
 
 
 def register():

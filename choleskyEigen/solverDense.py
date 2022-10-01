@@ -2,7 +2,8 @@ import jax.numpy as jnp
 import numpy as np
 from jax import abstract_arrays, core, xla
 from jax.core import ShapedArray
-from jaxlib import xla_client, xla_extension
+from jaxlib import xla_client
+from jaxlib import xla_extension as xla_ex
 from numpy.typing import ArrayLike
 
 import choleskyEigenLib
@@ -46,20 +47,20 @@ def solverDense_prim(A: ArrayLike, rhs: ArrayLike) -> ArrayLike:
 
 
 # abstract
-def solverDense_abstract_eval(As: ShapedArray, rhss: ShapedArray) -> ShapedArray:
+def solverDense_abstract_eval(A: ShapedArray, rhs: ShapedArray) -> ShapedArray:
     # Abstract evaluation of the primitive. And a few asserts for safety.
     # Will be invoked with abstractions.
-    assert len(As.shape) == 2
-    assert len(rhss.shape) == 1
-    assert As.shape[0] == rhss.shape[0]
+    assert len(A.shape) == 2
+    assert len(rhs.shape) == 1
+    assert A.shape[0] == rhs.shape[0]
     # Returns new ShapedArray with output dimensions and dtype.
-    return abstract_arrays.ShapedArray((rhss.shape[0],), rhss.dtype)
+    return abstract_arrays.ShapedArray((rhs.shape[0],), rhs.dtype)
 
 
 # XLA compilation rule
 def solverDense_xla_translation(
-    c: xla_extension.XlaBuilder, A: xla_extension.XlaOp, rhs: xla_extension.XlaOp
-) -> xla_extension.XlaOp:
+    c: xla_ex.XlaBuilder, A: xla_ex.XlaOp, rhs: xla_ex.XlaOp
+) -> xla_ex.XlaOp:
     # The compilation of the primitive to XLA.
     # Gets called with a XlaBuilder and XlaOps of each argument,
     # returns a combined XlaOp(eration).

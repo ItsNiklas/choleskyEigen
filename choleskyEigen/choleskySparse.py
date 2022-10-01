@@ -10,8 +10,9 @@ choleskySparse_p = core.Primitive("choleskySparse")
 # See solverDense.py for extensive comments.
 # New bindings are just copied and adjusted.
 
-### Symbolic Factorization of the Sparse Cholesky Decomposition ###
-### by @GianmarcoCallegher                                      ###
+# Symbolic Factorization of the Sparse Cholesky Decomposition #
+# by @GianmarcoCallegher                                      #
+
 
 @jit
 def symbolic_factorization(nnz_m):
@@ -44,6 +45,7 @@ def symbolic_factorization(nnz_m):
         return lax.fori_loop(k + 1, n, inner_body, nnz_m)
 
     return jnp.sum(lax.fori_loop(0, n, outer_body, nnz_m), dtype=jnp.int32)
+
 
 ###
 
@@ -125,19 +127,14 @@ def choleskySparse_xla_translation(c, A_sp_data, A_sp_idx, n, nnz_L):
         jnp.dtype(dtype), (n_dims[0], n_dims[0]), (0, 1)
     )
 
-    out_shape = xla_client.Shape.tuple_shape(
-        (
-            xla_client.Shape.array_shape(
-                jnp.dtype(dtype_idx), (c.get_shape(nnz_L).dimensions()[0], 1), (0, 1)
-            ),
-            xla_client.Shape.array_shape(
-                jnp.dtype(dtype_idx), (c.get_shape(nnz_L).dimensions()[0], 1), (0, 1)
-            ),
-            xla_client.Shape.array_shape(
-                jnp.dtype(dtype), (c.get_shape(nnz_L).dimensions()[0], 1), (0, 1)
-            ),
-        )
+    idx_shape = xla_client.Shape.array_shape(
+        jnp.dtype(dtype_idx), (c.get_shape(nnz_L).dimensions()[0], 1), (0, 1)
     )
+    data_shape = xla_client.Shape.array_shape(
+        jnp.dtype(dtype), (c.get_shape(nnz_L).dimensions()[0], 1), (0, 1)
+    )
+
+    out_shape = xla_client.Shape.tuple_shape((idx_shape, idx_shape, data_shape))
 
     op_name = b"choleskySparse"
 

@@ -2,7 +2,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy.sparse as sps
-import scipy.stats as spt
 
 # Enable JAX double-precision at startup.
 # Our Eigen functions currently work with double-precision.
@@ -58,39 +57,31 @@ def main():
 
     # MVN
     rng = np.random.default_rng(seed=2)
-
+    seed = jax.random.PRNGKey(1337)
     sps_mvn_sample_and_log_prob.register()
 
-    n = 10
-    seed = jax.random.PRNGKey(1337)
-    inv_cov = np.cov(rng.standard_normal((n, n)))
-    mean = rng.standard_normal(n)
+    n = 5
+    inv_cov = np.cov(rng.standard_normal((n, n * n)))
+    mean = jax.random.normal(seed, (n,))
 
     sample_updated, log_prob_updated = sps_mvn_sample_and_log_prob.sps_mvn(
         seed, mean, inv_cov
     )
-    """
-    assert np.allclose(
-        sample_updated, mean + np.linalg.solve(inv_cov.todense(), sample)
-    )
+
+    # Test
+    sample = jax.random.normal(seed, (n,))
+    log_prob = jnp.sum(jax.scipy.stats.norm.logpdf(sample))
+
+    assert np.allclose(sample_updated, mean + np.linalg.solve(inv_cov, sample))
     assert np.allclose(
         log_prob_updated,
-        log_prob + np.sum(np.log(np.diag(np.linalg.cholesky(inv_cov.todense())))),
+        log_prob + np.sum(np.log(np.diag(np.linalg.cholesky(inv_cov)))),
     )
-    """
 
-    # print(sample_updated, log_prob_updated)
-
-    # g = jax.grad(lambda *args: sps_mvn_sample_and_log_prob.sps_mvn(*args)[1], argnums=(1,2))
-    # sample_updated, log_prob_updated = g(seed, mean, inv_cov)
-    # print(sample_updated, log_prob_updated)
-
-    # def f0(sample, mean, inv_cov):
-    #    cov = jnp.linalg.inv(inv_cov)
-    #    return jax.scipy.stats.multivariate_normal.logpdf(sample, mean, cov)
-
-    # sample, _ = sps_mvn_sample_and_log_prob.sps_mvn(seed, mean, inv_cov)
-    # print(f0(sample, mean, inv_cov))
+    # Gradient w.r.t log-prob.
+    jax.grad(
+        lambda *args: sps_mvn_sample_and_log_prob.sps_mvn(*args)[1], argnums=(1, 2)
+    )
 
 
 if __name__ == "__main__":
