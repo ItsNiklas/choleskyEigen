@@ -10,17 +10,18 @@ import choleskyEigenLib
 
 sps_mvn_sample_and_log_prob_p = core.Primitive("sps_mvn_sample_and_log_prob")
 
+# prim
+
 
 @partial(jax.custom_jvp, nondiff_argnums=(0,))
 def sps_mvn(seed, mean, inv_cov):
-    # This is akward, but the gradient does not like the BCOO matrix.
+    # This is awkward, but the gradient does not like the BCOO matrix.
     # It can be sparsified, but then the attributes .data and .indices below
     # become unavailable. This is the simplest solution I've come up with,
     # which stores the whole memory, and the method below cannot be included
     # in JIT-compilation.
     inv_cov = BCOO.fromdense(inv_cov)  # dense to sparse
-    # do the following steps in c++
-    return jax.jit(sps_mvn_sample_and_log_prob_prim)(
+    return jax.jit(sps_mvn_sample_and_log_prob_p.bind)(
         mean,
         inv_cov.data,
         inv_cov.indices.T,
@@ -30,6 +31,9 @@ def sps_mvn(seed, mean, inv_cov):
         ),  # log-prob
         # Transpose fixes some other bug (?)
     )
+
+
+# grad
 
 
 @sps_mvn.defjvp
@@ -83,11 +87,6 @@ for _name, _val in choleskyEigenLib.registrations().items():
 # impl
 def sps_mvn_sample_and_log_prob_impl(*args):
     raise NotImplementedError("Please JIT this function.")
-
-
-# prim
-def sps_mvn_sample_and_log_prob_prim(*args):
-    return sps_mvn_sample_and_log_prob_p.bind(*args)
 
 
 # abstract

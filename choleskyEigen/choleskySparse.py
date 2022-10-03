@@ -15,6 +15,7 @@ choleskySparse_p = core.Primitive("choleskySparse")
 
 
 @jit
+# @sparse.sparsify does not work yet, maybe in future JAX versions.
 def symbolic_factorization(nnz_m):
     def parent(k, nnz_m):
         p = -1
@@ -31,6 +32,7 @@ def symbolic_factorization(nnz_m):
 
         return lax.while_loop(cond_fun, body_fun, (i, p))[1]
 
+    nnz_m = nnz_m - jnp.triu(nnz_m)
     n = nnz_m.shape[0]
 
     def outer_body(k, nnz_m):
@@ -52,16 +54,15 @@ def symbolic_factorization(nnz_m):
 # Not jit-able!
 def choleskySparse(A_sp):
     nnz_m = jnp.array(A_sp.todense() != 0, dtype=jnp.float32)
-    nnz_m = nnz_m - jnp.triu(nnz_m)
     nnz = symbolic_factorization(nnz_m)
     n = A_sp.shape[0]
 
     outer_idx, inner_idx, data = choleskySparse_prim(
         A_sp.data, A_sp.indices, jnp.repeat(n, n), jnp.repeat(nnz, nnz)
     )
-    idx = jnp.hstack((inner_idx, outer_idx))
+    idx = jnp.column_stack((inner_idx, outer_idx))
 
-    return experimental.sparse.BCOO((data.flatten(), idx), shape=(n, n))
+    return experimental.sparse.BCOO((data, idx), shape=(n, n))
 
 
 def register():
@@ -98,9 +99,9 @@ def choleskySparse_abstract_eval(A_sp_data, A_sp_idx, n, nnz_L):
     assert A_sp_data.shape[0] == A_sp_idx.shape[0]
     # Returning tuple of outputs
     return (
-        abstract_arrays.ShapedArray((nnz_L.shape[0], 1), A_sp_idx.dtype),
-        abstract_arrays.ShapedArray((nnz_L.shape[0], 1), A_sp_idx.dtype),
-        abstract_arrays.ShapedArray((nnz_L.shape[0], 1), A_sp_data.dtype),
+        abstract_arrays.ShapedArray((nnz_L.shape[0],), A_sp_idx.dtype),
+        abstract_arrays.ShapedArray((nnz_L.shape[0],), A_sp_idx.dtype),
+        abstract_arrays.ShapedArray((nnz_L.shape[0],), A_sp_data.dtype),
     )
 
 
@@ -123,15 +124,11 @@ def choleskySparse_xla_translation(c, A_sp_data, A_sp_idx, n, nnz_L):
 
     n_dims = c.get_shape(n).dimensions()
 
-    out_shape = xla_client.Shape.array_shape(
-        jnp.dtype(dtype), (n_dims[0], n_dims[0]), (0, 1)
-    )
-
     idx_shape = xla_client.Shape.array_shape(
-        jnp.dtype(dtype_idx), (c.get_shape(nnz_L).dimensions()[0], 1), (0, 1)
+        jnp.dtype(dtype_idx), (c.get_shape(nnz_L).dimensions()[0],), (0,)
     )
     data_shape = xla_client.Shape.array_shape(
-        jnp.dtype(dtype), (c.get_shape(nnz_L).dimensions()[0], 1), (0, 1)
+        jnp.dtype(dtype), (c.get_shape(nnz_L).dimensions()[0],), (0,)
     )
 
     out_shape = xla_client.Shape.tuple_shape((idx_shape, idx_shape, data_shape))
@@ -140,7 +137,7 @@ def choleskySparse_xla_translation(c, A_sp_data, A_sp_idx, n, nnz_L):
 
     nnz = A_sp_data_dims[0]
 
-    r = xla_client.ops.CustomCallWithLayout(
+    return xla_client.ops.CustomCallWithLayout(
         c,
         op_name,
         operands=(
@@ -157,4 +154,3 @@ def choleskySparse_xla_translation(c, A_sp_data, A_sp_idx, n, nnz_L):
             c.get_shape(n),
         ),
     )
-    return r
